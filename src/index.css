@@ -7,3 +7,7 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
+html, body {
+  overscroll-behavior-y: contain;
+}
+

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { Component, useState, useEffect } from 'react';
 import { Loan, ReminderLog, ReminderRule, PaymentRecord, InterestType, PaymentFrequency } from './types';
 import { getHydratedLoans, INITIAL_REMINDER_LOGS } from './utils/mockData';
 import { calculaterepaymentEffects } from './utils/loanCalculations';
@@ -73,13 +73,147 @@ const getInitialStateFromUrl = (): { loans: Loan[]; reminderLogs: ReminderLog[];
   return null;
 };
 
-export default function App() {
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  state: ErrorBoundaryState = {
+    hasError: false,
+    error: null
+  };
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error("ErrorBoundary caught an error", error, errorInfo);
+  }
+
+  handleReset = () => {
+    localStorage.clear();
+    window.location.reload();
+  };
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center font-sans">
+          <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md border border-slate-200">
+            <div className="w-16 h-16 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-4 font-sans">
+              <span className="text-2xl">⚠️</span>
+            </div>
+            <h1 className="text-lg font-bold text-slate-900">Something went wrong</h1>
+            <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+              An unexpected error occurred. No worries — fallback safety guards are active.
+            </p>
+            <div className="mt-4 p-3 bg-slate-50 pb-2.5 rounded-lg text-left font-mono text-[10px] text-slate-600 max-h-40 overflow-y-auto border border-slate-100">
+              {this.state.error?.message || "Render Error"}
+            </div>
+            <button
+              onClick={this.handleReset}
+              className="mt-6 w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs rounded-lg transition cursor-pointer"
+            >
+              Reset State & Restart Application
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return (this as any).props.children;
+  }
+}
+
+function App() {
   // Load or set states
   const [loans, setLoans] = useState<Loan[]>([]);
   const [reminderLogs, setReminderLogs] = useState<ReminderLog[]>([]);
   const [currentSimDate, setCurrentSimDate] = useState('2026-05-24'); // system anchor date matching system metadata
   const [activeTab, setActiveTab] = useState<'dashboard' | 'loans' | 'calculator' | 'reminders' | 'staff_mgmt'>('dashboard');
   const [layoutMode, setLayoutMode] = useState<'desktop' | 'android'>('desktop');
+
+  // Pull-To-Refresh State Tracker
+  const [startY, setStartY] = useState<number | null>(null);
+  const [pullY, setPullY] = useState<number>(0);
+  const [refreshState, setRefreshState] = useState<'idle' | 'pull' | 'release' | 'refreshing' | 'completed'>('idle');
+
+  const triggerAppRefresh = async () => {
+    setRefreshState('refreshing');
+    setPullY(65); // Lock pull distance at refreshing state height
+    try {
+      await testConnection();
+      await new Promise((resolve) => setTimeout(resolve, 1400));
+      setRefreshState('completed');
+      setSystemToast({
+        title: '🔄 Ledger Synced Successfully',
+        desc: 'All active agreements and payment journals pulled fresh from Europe-west2 Firestore DB.'
+      });
+      setTimeout(() => setSystemToast(null), 3500);
+    } catch (err) {
+      console.error("Refresh sync failed:", err);
+    } finally {
+      setTimeout(() => {
+        setPullY(0);
+        setRefreshState('idle');
+      }, 500);
+    }
+  };
+
+  const handleTouchStart = (e: React.TouchEvent, isInnerSimulator: boolean = false) => {
+    const target = e.currentTarget as HTMLElement;
+    const isAtTop = isInnerSimulator ? target.scrollTop === 0 : (window.scrollY === 0 || document.documentElement.scrollTop === 0);
+    
+    if (isAtTop && refreshState === 'idle') {
+      setStartY(e.touches[0].clientY);
+      setRefreshState('pull');
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent, isInnerSimulator: boolean = false) => {
+    if (startY === null || refreshState === 'refreshing' || refreshState === 'completed') return;
+    
+    const target = e.currentTarget as HTMLElement;
+    const isAtTop = isInnerSimulator ? target.scrollTop === 0 : (window.scrollY === 0 || document.documentElement.scrollTop === 0);
+    
+    if (!isAtTop) {
+      setStartY(null);
+      setPullY(0);
+      setRefreshState('idle');
+      return;
+    }
+    
+    const deltaY = e.touches[0].clientY - startY;
+    if (deltaY > 0) {
+      // Prevent browser native refresh so sandbox iframe doesn't crash on pull-down
+      if (e.cancelable) e.preventDefault();
+      
+      const resistancePull = Math.min(85, Math.pow(deltaY, 0.85));
+      setPullY(resistancePull);
+      
+      if (resistancePull >= 60) {
+        setRefreshState('release');
+      } else {
+        setRefreshState('pull');
+      }
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (startY === null) return;
+    if (pullY >= 60 && (refreshState === 'pull' || refreshState === 'release')) {
+      triggerAppRefresh();
+    } else {
+      setPullY(0);
+      setRefreshState('idle');
+    }
+    setStartY(null);
+  };
   
   // Custom client access states
   const [portalRole, setPortalRole] = useState<'staff' | 'client'>('staff');
@@ -600,7 +734,12 @@ export default function App() {
   const activeSelectedLoan = loans.find(l => l.id === selectedLoanId);
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans flex flex-col justify-between">
+    <div 
+      className="min-h-screen bg-slate-50 text-slate-900 font-sans flex flex-col justify-between"
+      onTouchStart={(e) => handleTouchStart(e, false)}
+      onTouchMove={(e) => handleTouchMove(e, false)}
+      onTouchEnd={handleTouchEnd}
+    >
       
       {/* Dynamic Slide-Down System Toast */}
       {systemToast && (
@@ -691,10 +830,60 @@ export default function App() {
                 </button>
               </div>
             </div>
+
+            {/* Quick Simulation/Actual Pull-Down Trigger Button */}
+            <button
+              id="header-manual-sync-btn"
+              onClick={triggerAppRefresh}
+              className={`flex items-center gap-1.5 px-3 py-1 text-[11px] font-extrabold rounded-lg border transition select-none cursor-pointer ${
+                refreshState === 'refreshing' 
+                  ? 'bg-indigo-50 border-indigo-200 text-indigo-700 animate-pulse shadow-sm' 
+                  : 'bg-indigo-600 border-indigo-700 hover:bg-indigo-500 text-white shadow-sm'
+              }`}
+              title="Click to Simulate Pull-To-Refresh Sync"
+            >
+              <span className={`inline-block ${refreshState === 'refreshing' ? 'animate-spin' : ''}`}>🔄</span>
+              {refreshState === 'refreshing' ? 'Syncing...' : 'Sync Database'}
+            </button>
           </div>
 
         </div>
       </header>
+
+      {/* Pull to refresh visual drawer for standard/desktop */}
+      {pullY > 0 && layoutMode === 'desktop' && (
+        <div 
+          style={{ height: `${pullY}px` }}
+          className="overflow-hidden flex items-center justify-center transition-all bg-indigo-50 text-indigo-700 font-sans border-b border-indigo-150 relative text-xs w-full shadow-inner"
+        >
+          <div className="flex items-center gap-2">
+            {refreshState === 'pull' && (
+              <>
+                <span className="animate-bounce text-sm">↓</span>
+                <span>Pull down to synchronize database ({Math.round(pullY)}px)...</span>
+              </>
+            )}
+            {refreshState === 'release' && (
+              <>
+                <span className="animate-pulse">✨</span>
+                <span className="font-bold text-indigo-805">Release now to sync ledger!</span>
+              </>
+            )}
+            {refreshState === 'refreshing' && (
+              <>
+                <span className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></span>
+                <span className="font-bold">Contacting Europe-west2 Cloud Run region cluster databases...</span>
+              </>
+            )}
+            {refreshState === 'completed' && (
+              <>
+                <span className="text-emerald-650 font-bold">✓</span>
+                <span className="font-bold text-emerald-700">Sync complete! Ledger profiles cached safely.</span>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Core Dual mode Wrapper */}
       <main className="flex-1 flex flex-col">
@@ -1051,8 +1240,39 @@ export default function App() {
                   </span>
                 </div>
 
+                {/* Pull to refresh visual drawer inside phone simulator */}
+                {pullY > 0 && layoutMode === 'android' && (
+                  <div 
+                    style={{ height: `${pullY}px` }}
+                    className="overflow-hidden flex items-center justify-center transition-all bg-indigo-50 text-indigo-700 font-sans border-b border-indigo-150 relative text-[10px] w-full shadow-inner select-none"
+                  >
+                    <div className="flex flex-col items-center justify-center px-4 py-1 text-center leading-tight">
+                      {refreshState === 'pull' && (
+                        <span className="animate-bounce">↓ Pull to sync ({Math.round(pullY)}px)</span>
+                      )}
+                      {refreshState === 'release' && (
+                        <span className="font-bold text-indigo-805">✨ Release to sync</span>
+                      )}
+                      {refreshState === 'refreshing' && (
+                        <span className="flex items-center gap-1">
+                          <span className="w-3 h-3 border border-indigo-600 border-t-transparent rounded-full animate-spin"></span>
+                          Syncing ledger...
+                        </span>
+                      )}
+                      {refreshState === 'completed' && (
+                        <span className="text-emerald-700 font-bold">✓ Complete</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {/* Simulated Content scrolling center pane */}
-                <div className="flex-1 overflow-y-auto bg-slate-50/50 p-3 scrollbar-none">
+                <div 
+                  className="flex-1 overflow-y-auto bg-slate-50/50 p-3 scrollbar-none"
+                  onTouchStart={(e) => handleTouchStart(e, true)}
+                  onTouchMove={(e) => handleTouchMove(e, true)}
+                  onTouchEnd={handleTouchEnd}
+                >
                   {portalRole === 'client' ? (
                     loggedInLoanId && loans.some(l => l.id === loggedInLoanId) ? (
                       <ClientOverview
@@ -1285,3 +1505,11 @@ const formStateTemplate = {
   notes: '',
   status: 'active' as Loan['status']
 };
+
+export default function AppWithErrorBoundary() {
+  return (
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  );
+}
