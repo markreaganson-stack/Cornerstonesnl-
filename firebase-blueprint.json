@@ -1,0 +1,75 @@
+{
+  "entities": {
+    "Loan": {
+      "title": "Loan",
+      "description": "An active or historical loan agreement",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier of the loan" },
+        "borrowerName": { "type": "string", "description": "Legal name of the borrower" },
+        "borrowerContact": { "type": "string", "description": "Phone number or key contact identifier" },
+        "borrowerEmail": { "type": "string", "description": "Email address of the borrower" },
+        "loanName": { "type": "string", "description": "Descriptive contract name" },
+        "category": { "type": "string", "enum": ["personal", "business", "mortgage", "auto", "microfinance", "custom"] },
+        "principal": { "type": "number", "description": "Total advanced principal amount" },
+        "interestRate": { "type": "number", "description": "Annualized percentage rate" },
+        "termMonths": { "type": "number", "description": "Repayment term length in months" },
+        "interestType": { "type": "string", "enum": ["amortized", "simple", "compound", "flat"] },
+        "compoundingFrequency": { "type": "string", "enum": ["monthly", "quarterly", "annually"] },
+        "paymentFrequency": { "type": "string", "enum": ["weekly", "biweekly", "monthly", "quarterly"] },
+        "startDate": { "type": "string", "format": "date", "description": "Start date of amortization" },
+        "status": { "type": "string", "enum": ["active", "paid", "overdue", "defaulted"] },
+        "notes": { "type": "string" },
+        "reminderRules": { "type": "array" },
+        "repayments": { "type": "array" },
+        "schedule": { "type": "array" },
+        "documents": { "type": "array" }
+      },
+      "required": ["id", "borrowerName", "borrowerContact", "loanName", "category", "principal", "interestRate", "termMonths", "interestType", "paymentFrequency", "startDate", "status"]
+    },
+    "ReminderLog": {
+      "title": "ReminderLog",
+      "description": "Log of a generated or sent reminder notice",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "loanId": { "type": "string" },
+        "loanName": { "type": "string" },
+        "borrowerName": { "type": "string" },
+        "dateSent": { "type": "string", "format": "date-time" },
+        "message": { "type": "string" },
+        "channel": { "type": "string", "enum": ["sms", "email", "push"] },
+        "status": { "type": "string", "enum": ["sent", "delivered", "failed"] },
+        "paymentAmount": { "type": "number" },
+        "dueDate": { "type": "string", "format": "date" }
+      },
+      "required": ["id", "loanId", "loanName", "borrowerName", "dateSent", "message", "channel", "status", "paymentAmount", "dueDate"]
+    },
+    "StaffAccount": {
+      "title": "StaffAccount",
+      "description": "Administrative credential and access records",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string" },
+        "password": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "email", "password", "createdAt"]
+    }
+  },
+  "firestore": {
+    "loans": {
+      "schema": "Loan",
+      "description": "Active and inactive loan schedule assets"
+    },
+    "reminderLogs": {
+      "schema": "ReminderLog",
+      "description": "Audit trails of client reminders triggered"
+    },
+    "staffAccounts": {
+      "schema": "StaffAccount",
+      "description": "Administrative credential mapping"
+    }
+  }
+}

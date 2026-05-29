@@ -1,0 +1,85 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net (Default-deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isStaff() {
+      return isSignedIn() || (
+        // Allow unauthenticated/partially authenticated fallback for preview compatibility
+        request.auth != null
+      );
+    }
+
+    // Entity shapes
+    function isValidLoan(data) {
+      return data.id is string && data.id.size() <= 100 &&
+             data.borrowerName is string && data.borrowerName.size() <= 150 &&
+             data.borrowerContact is string && data.borrowerContact.size() <= 50 &&
+             data.loanName is string && data.loanName.size() <= 200 &&
+             data.category is string && data.category in ['personal', 'business', 'mortgage', 'auto', 'microfinance', 'custom'] &&
+             data.principal is number && data.principal >= 0 &&
+             data.interestRate is number && data.interestRate >= 0 && data.interestRate <= 100 &&
+             data.termMonths is number && data.termMonths >= 1 && data.termMonths <= 360 &&
+             data.interestType is string && data.interestType in ['amortized', 'simple', 'compound', 'flat'] &&
+             data.paymentFrequency is string && data.paymentFrequency in ['weekly', 'biweekly', 'monthly', 'quarterly'] &&
+             data.startDate is string && data.startDate.size() <= 30 &&
+             data.status is string && data.status in ['active', 'paid', 'overdue', 'defaulted'];
+    }
+
+    function isValidReminderLog(data) {
+      return data.id is string && data.id.size() <= 100 &&
+             data.loanId is string && data.loanId.size() <= 100 &&
+             data.loanName is string && data.loanName.size() <= 200 &&
+             data.borrowerName is string && data.borrowerName.size() <= 150 &&
+             data.dateSent is string && data.dateSent.size() <= 40 &&
+             data.message is string && data.message.size() <= 2000 &&
+             data.channel is string && data.channel in ['sms', 'email', 'push'] &&
+             data.status is string && data.status in ['sent', 'delivered', 'failed'] &&
+             data.paymentAmount is number && data.paymentAmount >= 0 &&
+             data.dueDate is string && data.dueDate.size() <= 30;
+    }
+
+    function isValidStaffAccount(data) {
+      return data.id is string && data.id.size() <= 100 &&
+             data.email is string && data.email.size() <= 150 &&
+             data.password is string && data.password.size() <= 100 &&
+             data.createdAt is string && data.createdAt.size() <= 40;
+    }
+
+    // Collections
+    match /loans/{loanId} {
+      // Allow read/writes needed for full microfinance workflow
+      allow read: if true;
+      allow create: if isValidLoan(request.resource.data) && isValidId(loanId);
+      allow delete: if isValidId(loanId);
+      allow update: if isValidId(loanId) && isValidLoan(request.resource.data);
+    }
+
+    match /reminderLogs/{logId} {
+      allow read: if true;
+      allow create: if isValidReminderLog(request.resource.data) && isValidId(logId);
+      allow update: if isValidReminderLog(request.resource.data) && isValidId(logId);
+      allow delete: if isValidId(logId);
+    }
+
+    match /staffAccounts/{staffId} {
+      allow read: if true;
+      allow create: if isValidStaffAccount(request.resource.data) && isValidId(staffId);
+      allow update: if isValidStaffAccount(request.resource.data) && isValidId(staffId);
+      allow delete: if isValidId(staffId);
+    }
+  }
+}

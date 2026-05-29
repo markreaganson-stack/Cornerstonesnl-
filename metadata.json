@@ -1,0 +1,8 @@
+{
+  "name": "Cornerstone Savings & Loans",
+  "description": "Enterprise-grade savings, loans, and loan portfolio management system for Cornerstone Savings & Loans, complete with premium amortized schedules and interactive reminder triggers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
