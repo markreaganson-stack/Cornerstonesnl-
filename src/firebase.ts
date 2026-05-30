@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { getFirestore, doc, getDocFromServer, setDoc as originalSetDoc, DocumentReference, WithFieldValue, DocumentData } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
@@ -65,4 +65,33 @@ export async function testConnection() {
       console.log("Firebase server ping complete (connection established).");
     }
   }
+}
+
+export function cleanUndefined(obj: any): any {
+  if (obj === null || obj === undefined) {
+    return null;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(item => cleanUndefined(item));
+  }
+  if (typeof obj === 'object') {
+    if (obj instanceof Date) {
+      return obj;
+    }
+    const cleanObj: any = {};
+    for (const key in obj) {
+      if (Object.prototype.hasOwnProperty.call(obj, key)) {
+        const val = obj[key];
+        if (val !== undefined) {
+          cleanObj[key] = cleanUndefined(val);
+        }
+      }
+    }
+    return cleanObj;
+  }
+  return obj;
+}
+
+export async function setDoc<T = DocumentData>(reference: DocumentReference<T>, data: WithFieldValue<T>): Promise<void> {
+  return originalSetDoc(reference, cleanUndefined(data));
 }

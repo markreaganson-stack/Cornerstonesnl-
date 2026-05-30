@@ -2,8 +2,8 @@ import React, { Component, useState, useEffect } from 'react';
 import { Loan, ReminderLog, ReminderRule, PaymentRecord, InterestType, PaymentFrequency } from './types';
 import { getHydratedLoans, INITIAL_REMINDER_LOGS } from './utils/mockData';
 import { calculaterepaymentEffects } from './utils/loanCalculations';
-import { collection, doc, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType, testConnection } from './firebase';
+import { collection, doc, deleteDoc, onSnapshot } from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType, testConnection, cleanUndefined, setDoc } from './firebase';
 import DashboardStats from './components/DashboardStats';
 import InterestCalculator from './components/InterestCalculator';
 import RemindersSim from './components/RemindersSim';
@@ -41,15 +41,8 @@ import {
 } from 'lucide-react';
 
 const serializeStateToUrl = (loans: Loan[], logs: ReminderLog[], simDate: string) => {
-  try {
-    const payload = JSON.stringify({ l: loans, g: logs, d: simDate });
-    const encoded = btoa(unescape(encodeURIComponent(payload)));
-    const url = new URL(window.location.href);
-    url.searchParams.set('state', encoded);
-    window.history.replaceState(null, '', url.toString());
-  } catch (e) {
-    console.error('Failed to serialize state to URL:', e);
-  }
+  // Disabled state serialization in the URL parameters to prevent "Webpage not available" (431 Request Header Fields Too Large / 414 Request-URI Too Large) errors on reload.
+  // Standard full-fidelity state persistence is handled dynamically by Firebase and localStorage.
 };
 
 const getInitialStateFromUrl = (): { loans: Loan[]; reminderLogs: ReminderLog[]; currentSimDate: string } | null => {
@@ -260,6 +253,36 @@ function App() {
   // Load from local storage, URL state on startup & real-time Firestore sync
   useEffect(() => {
     testConnection();
+
+    // Check if there is an initial state in the URL to ingest/migrate
+    const urlState = getInitialStateFromUrl();
+    if (urlState) {
+      if (urlState.currentSimDate) {
+        localStorage.setItem('lendflow_sim_date', urlState.currentSimDate);
+        setCurrentSimDate(urlState.currentSimDate);
+      }
+      urlState.loans.forEach(async (loan) => {
+        try {
+          await setDoc(doc(db, 'loans', loan.id), loan);
+        } catch (e) {
+          handleFirestoreError(e, OperationType.WRITE, `loans/${loan.id}`);
+        }
+      });
+      urlState.reminderLogs.forEach(async (log) => {
+        try {
+          await setDoc(doc(db, 'reminderLogs', log.id), log);
+        } catch (e) {
+          handleFirestoreError(e, OperationType.WRITE, `reminderLogs/${log.id}`);
+        }
+      });
+      // Clear the massive URL parameter immediately so manual refreshes are lightning fast and standard sized
+      try {
+        const cleanUrl = window.location.origin + window.location.pathname;
+        window.history.replaceState(null, '', cleanUrl);
+      } catch (e) {
+        console.error('Failed to clear state query parameter:', e);
+      }
+    }
 
     const savedClientId = localStorage.getItem('lendflow_client_id');
     const savedPortalRole = localStorage.getItem('lendflow_portal_role') as 'staff' | 'client' | null;
